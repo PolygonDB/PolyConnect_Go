@@ -1,18 +1,34 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/bytedance/sonic"
 	"nhooyr.io/websocket"
+)
+
+var (
+	ctx   context.Context = context.Background()
+	mutex                 = &sync.Mutex{}
+	msg   input
 )
 
 // Settings.json parsing
 type settings struct {
 	Addr string `json:"addr"`
 	Port string `json:"port"`
+}
+
+type input struct {
+	Dbname string      `json:"dbname"`
+	Loc    string      `json:"location"`
+	Act    string      `json:"action"`
+	Val    interface{} `json:"value"`
 }
 
 func main() {
@@ -30,6 +46,28 @@ func datahandler(w http.ResponseWriter, r *http.Request) {
 	ws, _ := websocket.Accept(w, r, nil)
 	defer ws.Close(websocket.StatusNormalClosure, "")
 
+}
+
+func takein(ws *websocket.Conn, r *http.Request) bool {
+
+	//Reads input
+	_, reader, err := ws.Reader(ctx)
+	if err != nil {
+		return false
+	}
+
+	message, _ := io.ReadAll(reader)
+
+	mutex.Lock()
+	if err = sonic.Unmarshal(message, &msg); err != nil {
+		return false
+	}
+
+	//add message to the queue
+	process(&msg, ws)
+	mutex.Unlock()
+
+	return true
 }
 
 func portgrab() settings {
