@@ -22,6 +22,7 @@ var (
 type settings struct {
 	Addr string `json:"addr"`
 	Port string `json:"port"`
+	Name string `json:"name-of-exe"`
 }
 
 type input struct {
@@ -48,6 +49,39 @@ func datahandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func portgrab() settings {
+	if _, err := os.Stat("settings.json"); os.IsNotExist(err) {
+		setup()
+	}
+
+	if _, err := os.Stat("databases"); os.IsNotExist(err) {
+		err = os.Mkdir("databases", 0755)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println("Folder 'databases' created successfully.")
+	}
+
+	var set settings
+	sonic.Unmarshal(getFilecontent("settings.json"), &set)
+	return set
+}
+
+func setup() {
+	defaultset := settings{
+		Addr: "0.0.0.0",
+		Port: "25565",
+	}
+	data, _ := sonic.ConfigFastest.MarshalIndent(&defaultset, "", "    ")
+	os.WriteFile("settings.json", data, 0644)
+	fmt.Print("Settings.json has been setup. \n")
+}
+
+func getFilecontent(filename string) []byte {
+	file, _ := os.ReadFile("settings.json")
+	return file
+}
+
 func takein(ws *websocket.Conn, r *http.Request) bool {
 
 	//Reads input
@@ -70,35 +104,8 @@ func takein(ws *websocket.Conn, r *http.Request) bool {
 	return true
 }
 
-func portgrab() settings {
-	if _, err := os.Stat("settings.json"); os.IsNotExist(err) {
-		setup()
-	}
+func process(msg *input, ws *websocket.Conn) {
+	fmt.Print(sonic.MarshalString(msg))
+	return
 
-	if _, err := os.Stat("databases"); os.IsNotExist(err) {
-		err = os.Mkdir("databases", 0755)
-		if err != nil {
-			fmt.Println(err)
-		}
-		fmt.Println("Folder 'databases' created successfully.")
-	}
-
-	var set settings
-	sonic.Unmarshal(getFilecontent("settings.json"), set)
-	return set
-}
-
-func setup() {
-	defaultset := settings{
-		Addr: "0.0.0.0",
-		Port: "25565",
-	}
-	data, _ := sonic.ConfigFastest.MarshalIndent(&defaultset, "", "    ")
-	os.WriteFile("settings.json", data, 0644)
-	fmt.Print("Settings.json has been setup. \n")
-}
-
-func getFilecontent(filename string) []byte {
-	file, _ := os.ReadFile("settings.json")
-	return file
 }
