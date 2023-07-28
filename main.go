@@ -54,14 +54,6 @@ func portgrab() settings {
 		setup()
 	}
 
-	if _, err := os.Stat("databases"); os.IsNotExist(err) {
-		err = os.Mkdir("databases", 0755)
-		if err != nil {
-			fmt.Println(err)
-		}
-		fmt.Println("Folder 'databases' created successfully.")
-	}
-
 	var set settings
 	sonic.Unmarshal(getFilecontent("settings.json"), &set)
 	return set
