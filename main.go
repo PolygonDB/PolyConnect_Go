@@ -6,16 +6,19 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"sync"
 
 	"github.com/bytedance/sonic"
 	"nhooyr.io/websocket"
+	"nhooyr.io/websocket/wsjson"
 )
 
 var (
 	ctx   context.Context = context.Background()
 	mutex                 = &sync.Mutex{}
 	msg   input
+	set   settings
 )
 
 // Settings.json parsing
@@ -34,7 +37,7 @@ type input struct {
 
 func main() {
 
-	set := portgrab()
+	set = portgrab()
 
 	http.HandleFunc("/ws", datahandler)
 	fmt.Print("Server started on -> "+set.Addr+":"+set.Port, "\n")
@@ -59,10 +62,12 @@ func portgrab() settings {
 	return set
 }
 
+// Makes PolygonDB settings.json
 func setup() {
 	defaultset := settings{
 		Addr: "0.0.0.0",
 		Port: "25565",
+		Name: "PolygonDB.exe",
 	}
 	data, _ := sonic.ConfigFastest.MarshalIndent(&defaultset, "", "    ")
 	os.WriteFile("settings.json", data, 0644)
@@ -98,6 +103,45 @@ func takein(ws *websocket.Conn, r *http.Request) bool {
 
 func process(msg *input, ws *websocket.Conn) {
 	fmt.Print(sonic.MarshalString(msg))
-	return
+	cmd := exec.Command(set.Name)
 
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		fmt.Println("Error creating stdin pipe:", err)
+		return
+	}
+	defer stdin.Close()
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Println("Error creating stdout pipe:", err)
+		return
+	}
+	defer stdout.Close()
+
+	if err := cmd.Start(); err != nil {
+		fmt.Println("Error starting the executable:", err)
+		return
+	}
+
+	response := make([]byte, 4096)
+
+	message := msg
+	_, err = fmt.Fprintln(stdin, message)
+	if err != nil {
+		fmt.Println("Error sending message to the executable:", err)
+		return
+	}
+
+	// Read the response from the executable
+	n, err := io.ReadFull(stdout, response)
+	if err != nil {
+		fmt.Println("Error reading from the executable:", err)
+		return
+	}
+
+	// Print the response
+	wsjson.Write(ctx, ws, string(response[:n]))
+
+	return
 }
