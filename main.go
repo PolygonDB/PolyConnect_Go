@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/bytedance/sonic"
 	"nhooyr.io/websocket"
@@ -35,7 +37,7 @@ type input struct {
 	Val    interface{} `json:"value"`
 }
 
-func main() {
+func main2() {
 
 	set = portgrab()
 
@@ -50,6 +52,12 @@ func datahandler(w http.ResponseWriter, r *http.Request) {
 	ws, _ := websocket.Accept(w, r, nil)
 	defer ws.Close(websocket.StatusNormalClosure, "")
 
+	for {
+		if !takein(ws, r) {
+			ws.Close(websocket.StatusInternalError, "")
+			break
+		}
+	}
 }
 
 func portgrab() settings {
@@ -84,6 +92,7 @@ func takein(ws *websocket.Conn, r *http.Request) bool {
 	//Reads input
 	_, reader, err := ws.Reader(ctx)
 	if err != nil {
+		wsjson.Write(ctx, ws, err.Error())
 		return false
 	}
 
@@ -91,6 +100,7 @@ func takein(ws *websocket.Conn, r *http.Request) bool {
 
 	mutex.Lock()
 	if err = sonic.Unmarshal(message, &msg); err != nil {
+		wsjson.Write(ctx, ws, err.Error())
 		return false
 	}
 
@@ -103,45 +113,60 @@ func takein(ws *websocket.Conn, r *http.Request) bool {
 
 func process(msg *input, ws *websocket.Conn) {
 	fmt.Print(sonic.MarshalString(msg))
-	cmd := exec.Command(set.Name)
+	currentDir, _ := os.Getwd()
+	cmd := exec.Command(filepath.Join(currentDir, set.Name))
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		fmt.Println("Error creating stdin pipe:", err)
+		wsjson.Write(ctx, ws, err.Error())
 		return
 	}
 	defer stdin.Close()
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		fmt.Println("Error creating stdout pipe:", err)
+		wsjson.Write(ctx, ws, err.Error())
 		return
 	}
 	defer stdout.Close()
 
 	if err := cmd.Start(); err != nil {
-		fmt.Println("Error starting the executable:", err)
+		wsjson.Write(ctx, ws, err.Error())
 		return
 	}
 
-	response := make([]byte, 4096)
-
-	message := msg
-	_, err = fmt.Fprintln(stdin, message)
+	message, _ := sonic.ConfigFastest.MarshalToString(msg)
+	_, err = io.WriteString(stdin, message)
 	if err != nil {
 		fmt.Println("Error sending message to the executable:", err)
 		return
 	}
 
 	// Read the response from the executable
-	n, err := io.ReadFull(stdout, response)
+	response, err := io.ReadAll(stdout)
 	if err != nil {
 		fmt.Println("Error reading from the executable:", err)
 		return
 	}
 
 	// Print the response
-	wsjson.Write(ctx, ws, string(response[:n]))
 
-	return
+	wsjson.Write(ctx, ws, string(response))
+}
+
+func main() {
+
+	os.Getwd()
+	cmd := exec.Command("./PolygonDB.exe")
+	if err := cmd.Start(); err != nil {
+		fmt.Println("Error starting the executable:", err)
+		return
+	} else {
+		fmt.Print("works")
+		time.Sleep(200)
+	}
+
+	cmd.Process.Kill()
+
+	fmt.Print(cmd.Output())
 }
